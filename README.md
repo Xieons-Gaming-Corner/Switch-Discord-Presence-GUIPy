@@ -195,11 +195,13 @@ project/
 
 ## License
 
-Distributed under the MIT License. See LICENSE.
 
 # MIT License
 
-```Copyright (c) 2025 **THZoria**
+Distributed under the MIT License. See LICENSE.
+
+```
+Copyright (c) 2025 **THZoria**
 
 Permission is hereby granted, free of charge, to any person obtaining a copy  
 of this software and associated documentation files (the "Software"), to deal  
