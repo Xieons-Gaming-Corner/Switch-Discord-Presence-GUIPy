@@ -1,0 +1,166 @@
+name: Build & Release (Switch Discord Presence GUIPy)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: "Switch Discord Presence GUIPy"
+  MAIN_PATH: "src/presence_app/main.py"
+  WIN_ICON: "assets/icons/app.ico"
+  MAC_ICON: "assets/icons/app.icns"
+  PY_VERSION: "3.11"
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            artifact: SwitchDiscordPresenceGUIPy-windows-x64.zip
+          - os: ubuntu-latest
+            label: linux-x64
+            artifact: SwitchDiscordPresenceGUIPy-linux-x64.tar.gz
+          - os: macos-13
+            label: mac-intel
+            artifact: SwitchDiscordPresenceGUIPy-mac-intel.zip
+          - os: macos-14
+            label: mac-arm64
+            artifact: SwitchDiscordPresenceGUIPy-mac-arm64.zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PY_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PY_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pyinstaller
+
+      # ---------------- Windows build & package ----------------
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iconArg = ""
+          if (Test-Path "${{ env.WIN_ICON }}") { $iconArg = "--icon `"$env:WIN_ICON`"" }
+
+          pyinstaller --noconfirm --clean `
+            --name "${{ env.APP_NAME }}" `
+            --windowed --onefile `
+            $iconArg `
+            "${{ env.MAIN_PATH }}"
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Push-Location dist
+          $exe = "${{ env.APP_NAME }}.exe"
+          if (!(Test-Path $exe)) { Get-ChildItem -Name; throw "Executable not found: $exe" }
+          Compress-Archive -Path "$exe" -DestinationPath "../${{ matrix.artifact }}" -Force
+          Get-FileHash "../${{ matrix.artifact }}" -Algorithm SHA256 | ForEach-Object { $_.Hash } > "../${{ matrix.artifact }}.sha256"
+          Pop-Location
+
+      # ---------------- macOS build & package ----------------
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ICON_ARG=""
+          if [[ -f "${MAC_ICON}" ]]; then ICON_ARG="--icon ${MAC_ICON}"; fi
+
+          pyinstaller --noconfirm --clean \
+            --name "${APP_NAME}" \
+            --windowed \
+            ${ICON_ARG} \
+            "${MAIN_PATH}"
+
+      - name: Package artifact (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          APP_DIR="${APP_NAME}.app"
+          [[ -d "${APP_DIR}" ]] || { ls -la; echo "Bundle not found: ${APP_DIR}"; exit 1; }
+          # Zip the .app preserving resource forks
+          ditto -c -k --sequesterRsrc --keepParent "${APP_DIR}" "../${{ matrix.artifact }}"
+          shasum -a 256 "../${{ matrix.artifact }}" | awk '{print $1}' > "../${{ matrix.artifact }}.sha256"
+
+      # ---------------- Linux build & package ----------------
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --clean \
+            --name "${APP_NAME}" \
+            --windowed --onefile \
+            "${MAIN_PATH}"
+
+      - name: Package artifact (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          BIN="${APP_NAME}"
+          [[ -f "${BIN}" ]] || { ls -la; echo "Binary not found: ${BIN}"; exit 1; }
+          tar -czf "../${{ matrix.artifact }}" "${BIN}"
+          sha256sum "../${{ matrix.artifact }}" | awk '{print $1}' > "../${{ matrix.artifact }}.sha256"
+
+      # ---------------- Upload per-target artifacts ----------------
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: |
+          ls -lah release
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.zip
+            release/*.tar.gz
+            release/*.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
