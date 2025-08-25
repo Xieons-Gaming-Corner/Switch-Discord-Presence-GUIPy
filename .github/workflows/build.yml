@@ -2,13 +2,16 @@ name: Build & Release (Switch Discord Presence GUIPy)
 
 on:
   push:
-    tags:
-      - "v*.*.*"
-  workflow_dispatch: {}
+    branches:
+      - "**"          # à chaque commit
+  workflow_dispatch: {} # exécution manuelle
 
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: write
 
 env:
   APP_NAME: "Switch Discord Presence GUIPy"
@@ -48,7 +51,19 @@ jobs:
           python-version: ${{ env.PY_VERSION }}
           cache: "pip"
 
-      - name: Install dependencies
+      # ---------- Install deps (Windows / PowerShell) ----------
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path "requirements.txt") { pip install -r requirements.txt }
+          pip install pyinstaller
+
+      # ---------- Install deps (macOS & Linux / Bash) ----------
+      - name: Install dependencies (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -101,7 +116,6 @@ jobs:
           cd dist
           APP_DIR="${APP_NAME}.app"
           [[ -d "${APP_DIR}" ]] || { ls -la; echo "Bundle not found: ${APP_DIR}"; exit 1; }
-          # Zip the .app preserving resource forks
           ditto -c -k --sequesterRsrc --keepParent "${APP_DIR}" "../${{ matrix.artifact }}"
           shasum -a 256 "../${{ matrix.artifact }}" | awk '{print $1}' > "../${{ matrix.artifact }}.sha256"
 
@@ -126,7 +140,6 @@ jobs:
           tar -czf "../${{ matrix.artifact }}" "${BIN}"
           sha256sum "../${{ matrix.artifact }}" | awk '{print $1}' > "../${{ matrix.artifact }}.sha256"
 
-      # ---------------- Upload per-target artifacts ----------------
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
@@ -149,8 +162,7 @@ jobs:
           merge-multiple: true
 
       - name: List downloaded files
-        run: |
-          ls -lah release
+        run: ls -lah release
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
