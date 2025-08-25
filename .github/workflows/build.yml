@@ -74,14 +74,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $iconArg = ""
-          if (Test-Path "${{ env.WIN_ICON }}") { $iconArg = "--icon `"$env:WIN_ICON`"" }
+          # Construire un tableau d'arguments pour éviter les soucis de guillemets
+          $args = @('--noconfirm','--clean','--name', "${{ env.APP_NAME }}", '--windowed','--onefile')
 
-          pyinstaller --noconfirm --clean `
-            --name "${{ env.APP_NAME }}" `
-            --windowed --onefile `
-            $iconArg `
-            "${{ env.MAIN_PATH }}"
+          if (Test-Path -Path "${{ env.WIN_ICON }}") {
+            Write-Host "Using icon: $env:WIN_ICON"
+            $args += @('--icon', "${{ env.WIN_ICON }}")
+          } else {
+            Write-Host "Icon not found: $env:WIN_ICON — building without custom icon."
+          }
+
+          $args += "${{ env.MAIN_PATH }}"
+
+          Write-Host "pyinstaller $($args -join ' ')"
+          pyinstaller @args
 
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
