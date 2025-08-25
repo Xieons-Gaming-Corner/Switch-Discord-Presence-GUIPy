@@ -3,8 +3,10 @@ name: Build & Release (Switch Discord Presence GUIPy)
 on:
   push:
     branches:
-      - "**"          # à chaque commit
-  workflow_dispatch: {} # exécution manuelle
+      - "**"          # build à chaque commit
+    tags:
+      - "*"           # build + release auto sur tout tag (ex: v1.2.3)
+  workflow_dispatch: {} # exécution manuelle via l'onglet Actions
 
 concurrency:
   group: build-${{ github.ref }}
@@ -74,18 +76,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Construire un tableau d'arguments pour éviter les soucis de guillemets
           $args = @('--noconfirm','--clean','--name', "${{ env.APP_NAME }}", '--windowed','--onefile')
-
-          if (Test-Path -Path "${{ env.WIN_ICON }}") {
-            Write-Host "Using icon: $env:WIN_ICON"
-            $args += @('--icon', "${{ env.WIN_ICON }}")
-          } else {
-            Write-Host "Icon not found: $env:WIN_ICON — building without custom icon."
-          }
-
+          if (Test-Path -Path "${{ env.WIN_ICON }}") { $args += @('--icon', "${{ env.WIN_ICON }}") }
           $args += "${{ env.MAIN_PATH }}"
-
           Write-Host "pyinstaller $($args -join ' ')"
           pyinstaller @args
 
@@ -107,7 +100,6 @@ jobs:
         run: |
           ICON_ARG=""
           if [[ -f "${MAC_ICON}" ]]; then ICON_ARG="--icon ${MAC_ICON}"; fi
-
           pyinstaller --noconfirm --clean \
             --name "${APP_NAME}" \
             --windowed \
@@ -159,7 +151,7 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/')   # ne s'exécute que sur un tag
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -167,12 +159,14 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: List downloaded files
+      - name: Show downloaded files
         run: ls -lah release
 
-      - name: Create Release
+      - name: Create Release from tag
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}                # utilise exactement le tag créé
+          name: ${{ env.APP_NAME }} ${{ github.ref_name }} # titre de la release
           files: |
             release/*.zip
             release/*.tar.gz
