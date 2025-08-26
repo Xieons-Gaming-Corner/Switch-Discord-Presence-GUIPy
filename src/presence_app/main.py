@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import socket
 import struct
@@ -8,6 +9,7 @@ import threading
 import traceback
 import platform
 import hashlib
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple
 
@@ -17,12 +19,11 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 APP_ORG = "Hya"
 APP_NAME = "Switch Discord Presence GUIPy"
-APP_VERSION = "1.0.2" 
+APP_VERSION = "1.0.3"  
 
 GITHUB_OWNER = "THZoria"
 GITHUB_REPO = "Switch-Discord-Presence-GUIPy"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
-
 
 TCP_PORT = 0xCAFE
 PACKETMAGIC = 0xFFAADD23
@@ -39,7 +40,6 @@ class I18N:
     EN = "en"
 
     STR = {
-        
         "device_ip": {FR: "IP de l’appareil :", EN: "Device IP:"},
         "client_id": {FR: "Discord Client ID :", EN: "Discord Client ID:"},
         "ignore_home": {FR: "Ignorer l’écran d’accueil (Home Menu)", EN: "Ignore Home Screen (Home Menu)"},
@@ -79,7 +79,6 @@ class I18N:
         "stopping_status": {FR: "Arrêt.", EN: "Stopped."},
         "home_dash": {FR: "—", EN: "—"},
 
-        
         "menu_help": {FR: "Aide", EN: "Help"},
         "check_updates": {FR: "Rechercher des mises à jour…", EN: "Check for updates…"},
         "about": {FR: "À propos", EN: "About"},
@@ -109,8 +108,6 @@ class I18N:
     def t(self, key: str, **kwargs) -> str:
         s = self.STR.get(key, {}).get(self.lang, key)
         return s.format(**kwargs) if kwargs else s
-
-
 
 
 class Theme:
@@ -188,6 +185,44 @@ def apply_global_stylesheet(app: QtWidgets.QApplication):
     QPushButton:disabled { opacity: .6; }
     """)
 
+
+def get_config_dir() -> Path:
+    """Retourne le dossier de config par OS."""
+    if sys.platform.startswith("win"):
+        base = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / APP_NAME  # ex: %APPDATA%/Switch Discord Presence GUIPy
+
+CONFIG_DIR = get_config_dir()
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+class ConfigStore:
+    """Lecture/écriture JSON atomique (sans dépendances)."""
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.data: dict = {}
+        self.load()
+
+    def load(self) -> None:
+        try:
+            self.data = json.loads(self.path.read_text(encoding="utf-8"))
+        except Exception:
+            self.data = {}
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(self.path)
+
+    def get(self, key: str, default=None):
+        return self.data.get(key, default)
+
+    def set(self, key: str, value) -> None:
+        self.data[key] = value
 
 
 def valid_ip(ip: str) -> bool:
@@ -280,7 +315,6 @@ class UpdateChecker(QtCore.QThread):
                     u = a.get("browser_download_url")
                     rr = requests.get(u, headers=headers, timeout=15)
                     rr.raise_for_status()
-                    
                     sha_remote = (rr.text or "").strip().split()[0]
                     asset_name = base
                     break
@@ -297,6 +331,7 @@ class UpdateChecker(QtCore.QThread):
             self.finishedWithResult.emit(result, None)
         except Exception as e:
             self.finishedWithResult.emit({}, e)
+
 
 
 class RpcWorker(QtCore.QThread):
@@ -525,10 +560,11 @@ class RpcWorker(QtCore.QThread):
 # ----------------------------- GUI -----------------------------
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, i18n: I18N, theme: str):
+    def __init__(self, i18n: I18N, theme: str, config: ConfigStore):
         super().__init__()
         self.i18n = i18n
         self.theme = theme
+        self.config = config
 
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(780, 560)
@@ -624,6 +660,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actCheckUpdate.triggered.connect(lambda: self.checkUpdates(manual=True))
         self.actAbout.triggered.connect(self.showAbout)
 
+        self.ipEdit.setText(self.config.get("device_ip", "") or "")
+        self.clientEdit.setText(self.config.get("client_id", "") or "")
+        self.ignoreHome.setChecked(bool(self.config.get("ignore_home", False)))
+
+        size = self.config.get("win_size")
+        pos = self.config.get("win_pos")
+        try:
+            if isinstance(size, (list, tuple)) and len(size) == 2:
+                self.resize(int(size[0]), int(size[1]))
+            if isinstance(pos, (list, tuple)) and len(pos) == 2:
+                self.move(int(pos[0]), int(pos[1]))
+        except Exception:
+            pass
+
+        self.ipEdit.textEdited.connect(lambda _t: self.saveConfigField("device_ip", self.ipEdit.text().strip()))
+        self.clientEdit.textEdited.connect(lambda _t: self.saveConfigField("client_id", self.clientEdit.text().strip()))
+        self.ignoreHome.toggled.connect(lambda v: self.saveConfigField("ignore_home", bool(v)))
+
         self.retranslate()
         self.syncThemeChecks()
 
@@ -633,6 +687,15 @@ class MainWindow(QtWidgets.QMainWindow):
         super().changeEvent(e)
         if e.type() == QtCore.QEvent.Type.LanguageChange:
             self.setWindowTitle(APP_NAME)
+
+    def saveConfigField(self, key: str, value):
+        self.config.set(key, value)
+        self.config.save()
+
+    def saveWindowStateToConfig(self):
+        self.config.set("win_size", [self.width(), self.height()])
+        self.config.set("win_pos", [self.x(), self.y()])
+        self.config.save()
 
     def retranslate(self):
         self.setWindowTitle(APP_NAME)
@@ -669,6 +732,7 @@ class MainWindow(QtWidgets.QMainWindow):
         apply_global_stylesheet(app)
         self.syncThemeChecks()
         QtCore.QSettings(APP_ORG, APP_NAME).setValue("theme", theme)
+        self.saveConfigField("theme", theme)
 
     def syncThemeChecks(self):
         self.actThemeLight.setChecked(self.theme == Theme.LIGHT)
@@ -679,6 +743,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.i18n.lang = lang
         self.retranslate()
         QtCore.QSettings(APP_ORG, APP_NAME).setValue("lang", lang)
+        self.saveConfigField("lang", lang)
 
     def showAbout(self):
         QtWidgets.QMessageBox.information(
@@ -763,6 +828,10 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, self.i18n.t("missing_client_title"), self.i18n.t("missing_client_msg"))
             return
 
+        self.saveConfigField("device_ip", ip)
+        self.saveConfigField("client_id", client_id)
+        self.saveConfigField("ignore_home", bool(self.ignoreHome.isChecked()))
+
         self.logView.clear()
         self.setStatus(self.i18n.t("starting"))
         self.setNowPlaying(self.i18n.t("home_dash"))
@@ -798,6 +867,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait(3000)
+        # Sauvegarde position/tailles
+        self.saveWindowStateToConfig()
         event.accept()
 
 
@@ -809,10 +880,12 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setApplicationDisplayName(APP_NAME) 
-    
+
     settings = QtCore.QSettings(APP_ORG, APP_NAME)
-    lang = settings.value("lang", I18N.FR)
-    theme = settings.value("theme", Theme.AUTO)
+    config = ConfigStore(CONFIG_FILE)
+
+    lang = config.get("lang", settings.value("lang", I18N.FR))
+    theme = config.get("theme", settings.value("theme", Theme.AUTO))
 
     if theme == Theme.DARK:
         apply_dark_palette(app)
@@ -823,11 +896,13 @@ def main():
     apply_global_stylesheet(app)
 
     i18n = I18N(lang=lang)
-    w = MainWindow(i18n=i18n, theme=theme)
+    w = MainWindow(i18n=i18n, theme=theme, config=config)
     w.setWindowTitle(APP_NAME)
     QtCore.QTimer.singleShot(0, lambda: w.setWindowTitle(APP_NAME))
 
-    w.resize(880, 640)
+    if config.get("win_size") is None:
+        w.resize(880, 640)
+
     w.show()
     sys.exit(app.exec())
 
