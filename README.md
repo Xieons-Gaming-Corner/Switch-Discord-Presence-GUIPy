@@ -1,5 +1,4 @@
-# XGC's Mirror - 
-As of now this is a 1:1 mirror of the upstream source. It has been forked and put in the XGC Orgs Github as a repository because we feel this is an interesting project and integrating it with our other projects is something we feel looking into will be beneficial, and we'll make any relevant information gleaned available to the community. 
+
 
 
 # Switch Discord Presence GUIPy
