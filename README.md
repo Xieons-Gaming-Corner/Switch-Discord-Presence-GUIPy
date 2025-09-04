@@ -1,3 +1,6 @@
+
+
+
 # Switch Discord Presence GUIPy
 
 > A **cross-platform** desktop app (Windows • macOS • Linux) built with **Python + PyQt6** that publishes **Discord Rich Presence** based on what’s running on your **Nintendo Switch** (and **Quest** via overrides).  
