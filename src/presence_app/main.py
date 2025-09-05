@@ -9,6 +9,7 @@ import threading
 import traceback
 import platform
 import hashlib
+import re
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple
@@ -19,7 +20,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 APP_ORG = "Hya"
 APP_NAME = "Switch Discord Presence GUIPy"
-APP_VERSION = "1.0.3"  
+APP_VERSION = "1.0.1"  
 
 GITHUB_OWNER = "THZoria"
 GITHUB_REPO = "Switch-Discord-Presence-GUIPy"
@@ -357,6 +358,11 @@ class RpcWorker(QtCore.QThread):
         self.last_program_name = ""
         self.connected_presence = False
 
+        # --- TID indexes + regex ---
+        self.tid_to_name: Dict[str, str] = {}
+        self.name_to_tid: Dict[str, str] = {}
+        self._tid_re = re.compile(r"^[0-9A-Fa-f]{16}$")
+
     def stop(self):
         self._stop.set()
 
@@ -377,6 +383,56 @@ class RpcWorker(QtCore.QThread):
 
         self.quest_overrides = fetch_one(QUEST_URL, "Overrides Quest")
         self.switch_overrides = fetch_one(SWITCH_URL, "Overrides Switch")
+
+        # Build TID indexes after loading
+        self._build_tid_indexes()
+
+    # -------------------- TID helpers --------------------
+    def _is_tid(self, s: str) -> bool:
+        return bool(s and self._tid_re.match(s.strip()))
+
+    def _build_tid_indexes(self) -> None:
+        """Build maps: tid_to_name (both cases) and name_to_tid from switch_overrides."""
+        self.tid_to_name.clear()
+        self.name_to_tid.clear()
+
+        sw = self.switch_overrides or {}
+        if isinstance(sw, dict):
+            for name, info in sw.items():
+                if not isinstance(info, dict):
+                    continue
+                tids = []
+                for k in ("TitleIds", "TitleIDs", "TIDs", "Tids", "Tid", "TitleId", "TitleID"):
+                    v = info.get(k)
+                    if isinstance(v, str):
+                        tids.append(v)
+                    elif isinstance(v, (list, tuple)):
+                        tids.extend([x for x in v if isinstance(x, str)])
+
+                norm = []
+                for t in tids:
+                    t = t.strip()
+                    if self._is_tid(t):
+                        norm.append(t)
+
+                if not norm:
+                    continue
+
+                display = info.get("CustomName") or name
+                self.name_to_tid[display] = norm[0]
+                for t in norm:
+                    self.tid_to_name[t.upper()] = display
+                    self.tid_to_name[t.lower()] = display
+
+    def _resolve_name_from_tid(self, tid: str) -> Optional[str]:
+        if not self._is_tid(tid):
+            return None
+        return (self.tid_to_name.get(tid)
+                or self.tid_to_name.get(tid.upper())
+                or self.tid_to_name.get(tid.lower()))
+
+    def _resolve_tid_from_name(self, name: str) -> Optional[str]:
+        return (self.name_to_tid or {}).get(name)
 
     def _connect_socket(self):
         addr = (self.ip, TCP_PORT)
@@ -429,41 +485,82 @@ class RpcWorker(QtCore.QThread):
             pass
 
     def _presence_payload(self, title: TitlePacket):
+        # TID-aware payload builder
         smallimagetext = ""
         largeimagekey = ""
         details = ""
-        largeimagetext = title.name or ""
 
-        if title.name == "Home Menu":
+        # Start from provided name but resolve if it's a TID
+        display_name = title.name or ""
+        preferred_tid: Optional[str] = None
+
+        # If incoming "name" is a TID -> resolve human-readable
+        if self._is_tid(display_name):
+            resolved = self._resolve_name_from_tid(display_name)
+            if resolved:
+                display_name = resolved
+            preferred_tid = title.name  # use asset named like this TID if uploaded
+        else:
+            # Try to find a TID for this name
+            preferred_tid = self._resolve_tid_from_name(display_name)
+
+        largeimagetext = display_name or ""
+
+        # Home Menu
+        if display_name == "Home Menu":
             largeimagekey = "switch"
             details = "Navigating the Home Menu"
             largeimagetext = "Home Menu"
             smallimagetext = "On the Switch"
-        elif int(title.pid) != PACKETMAGIC:
-            smallimagetext = "SwitchPresence-Rewritten"
-            if title.name not in self.switch_overrides:
-                largeimagekey = icon_from_pid(title.pid)
-                details = title.name
-            else:
-                orinfo = self.switch_overrides[title.name]
-                largeimagekey = orinfo.get("CustomKey") or icon_from_pid(title.pid)
-                details = (orinfo.get("CustomPrefix") or "Playing") + " " + title.name
-        else:
-            smallimagetext = "QuestPresence"
-            if title.name not in self.quest_overrides:
-                largeimagekey = title.name.lower().replace(" ", "")
-                details = "Playing " + title.name
-            else:
-                orinfo = self.quest_overrides[title.name]
-                largeimagekey = orinfo.get("CustomKey") or title.name.lower().replace(" ", "")
-                details = (orinfo.get("CustomPrefix") or "Playing") + " " + title.name
+            return dict(
+                details=details,
+                large_image=largeimagekey,
+                large_text=largeimagetext,
+                small_text=smallimagetext
+            )
 
-        return dict(
-            details=details,
-            large_image=largeimagekey,
-            large_text=largeimagetext,
-            small_text=smallimagetext
-        )
+        # Switch vs Quest
+        if int(title.pid) != PACKETMAGIC:
+            # SWITCH
+            smallimagetext = "SwitchPresence-Rewritten"
+            orinfo = self.switch_overrides.get(display_name)
+
+            if not orinfo:
+                # Prefer TID asset if present, else fallback to pid->hex
+                largeimagekey = preferred_tid or icon_from_pid(title.pid)
+                details = display_name
+            else:
+                # CustomKey > TID > pid->hex
+                largeimagekey = (orinfo.get("CustomKey")
+                                 or preferred_tid
+                                 or icon_from_pid(title.pid))
+                prefix = (orinfo.get("CustomPrefix") or "Playing")
+                details = f"{prefix} {display_name}"
+
+            return dict(
+                details=details,
+                large_image=largeimagekey,
+                large_text=largeimagetext,
+                small_text=smallimagetext
+            )
+
+        else:
+            # QUEST (unchanged baseline)
+            smallimagetext = "QuestPresence"
+            if display_name not in self.quest_overrides:
+                largeimagekey = display_name.lower().replace(" ", "")
+                details = "Playing " + display_name
+            else:
+                orinfo = self.quest_overrides[display_name]
+                largeimagekey = orinfo.get("CustomKey") or display_name.lower().replace(" ", "")
+                details = (orinfo.get("CustomPrefix") or "Playing") + " " + display_name
+
+            return dict(
+                details=details,
+                large_image=largeimagekey,
+                large_text=largeimagetext,
+                small_text=smallimagetext
+            )
 
     def run(self):
         try:
