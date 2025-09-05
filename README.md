@@ -55,6 +55,8 @@
 
 Optional (for custom images in Rich Presence):
 - In your Discord app → **Rich Presence → Art Assets**, add images (keys like `switch` or game-specific keys from overrides).
+- Uploads Switch game icons in .png format with their TID as the filename, for example 010013C00E930000.png.
+- Images must have a minimum resolution of 1024x1024 pixels.
 
 ---
 
