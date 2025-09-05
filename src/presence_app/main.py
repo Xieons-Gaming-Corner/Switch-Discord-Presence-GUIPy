@@ -20,7 +20,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 APP_ORG = "Hya"
 APP_NAME = "Switch Discord Presence GUIPy"
-APP_VERSION = "1.0.1"  
+APP_VERSION = "1.0.4"  
 
 GITHUB_OWNER = "THZoria"
 GITHUB_REPO = "Switch-Discord-Presence-GUIPy"
