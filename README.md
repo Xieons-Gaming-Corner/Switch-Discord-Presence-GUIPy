@@ -6,7 +6,7 @@
 > A **cross-platform** desktop app (Windows • macOS • Linux) built with **Python + PyQt6** that publishes **Discord Rich Presence** based on what’s running on your **Nintendo Switch** (and **Quest** via overrides).  
 > Modern UI, **EN/FR**, **light/dark/auto themes**, auto-reconnect, and integrated logs.
   <a rel="VERSION" href="https://github.com/THZoria/Switch-Discord-Presence-GUIPy">
-        <img src="https://img.shields.io/static/v1?label=version&message=1.0.3&labelColor=111111&color=06f&style=for-the-badge" alt="Version">
+        <img src="https://img.shields.io/static/v1?label=version&message=1.0.4&labelColor=111111&color=06f&style=for-the-badge" alt="Version">
     </a>
 
 ---
@@ -55,6 +55,8 @@
 
 Optional (for custom images in Rich Presence):
 - In your Discord app → **Rich Presence → Art Assets**, add images (keys like `switch` or game-specific keys from overrides).
+- Uploads Switch game icons in .png format with their TID as the filename, for example 010013C00E930000.png.
+- Images must have a minimum resolution of 1024x1024 pixels.
 
 ---
 
