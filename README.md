@@ -11,9 +11,9 @@
 
 ---
 
-<img width="1102" height="839" alt="image" src="https://github.com/user-attachments/assets/7cae28e9-3547-484c-babe-2725d31ef3e3" />
-
-<img width="1102" height="839" alt="image" src="https://github.com/user-attachments/assets/569d04bb-df71-4873-9992-9835e839d389" />
+[![Discord](https://img.shields.io/discord/454099185416011776?label=Rejoindre%20le%20Discord&logo=discord&logoColor=white&style=for-the-badge)](https://discord.sighya.fr) <br>
+[![Dernière version](https://img.shields.io/github/v/release/THZoria/Switch-Discord-Presence-GUIPy?label=Dernière%20Version&color=05c09a&style=for-the-badge)](https://github.com/THZoria/NX_Firmware/releases/latest) <br>
+[![Téléchargements](https://img.shields.io/github/downloads/THZoria/Switch-Discord-Presence-GUIPy/total?label=Téléchargements&color=blue&style=for-the-badge)](https://github.com/THZoria/NX_Firmware)
 
 ---
 
