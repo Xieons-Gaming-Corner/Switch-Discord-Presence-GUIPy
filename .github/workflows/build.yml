@@ -35,10 +35,7 @@ jobs:
             artifact: SwitchDiscordPresenceGUIPy-windows-x64.zip
           - os: ubuntu-latest
             label: linux-x64
-            artifact: SwitchDiscordPresenceGUIPy-linux-x64.tar.gz
-          - os: macos-13
-            label: mac-intel
-            artifact: SwitchDiscordPresenceGUIPy-mac-intel.zip
+            artifact: SwitchDiscordPresenceGUIPy-linux-x64.tar.gzp
           - os: macos-14
             label: mac-arm64
             artifact: SwitchDiscordPresenceGUIPy-mac-arm64.zip
